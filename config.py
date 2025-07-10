@@ -18,6 +18,7 @@ class AppConfig:
     # OpenAI Configuration
     openai_api_key: str = os.getenv('OPENAI_API_KEY', '')
     openai_model: str = os.getenv('OPENAI_MODEL', 'gpt-4')
+    openai_base_url: str = os.getenv('OPENAI_BASE_URL', '')
     
     # Application Settings
     log_level: str = os.getenv('LOG_LEVEL', 'INFO')
@@ -50,6 +51,17 @@ class AppConfig:
             raise ValueError("ALLOWED_FILE_TYPES cannot be empty")
         
         return True
+    
+    def get_openai_client_config(self) -> dict:
+        """Get OpenAI client configuration including base URL for proxy support"""
+        config = {
+            'api_key': self.openai_api_key
+        }
+        
+        if self.openai_base_url:
+            config['base_url'] = self.openai_base_url
+        
+        return config
     
     def get_allowed_extensions(self) -> List[str]:
         """Get list of allowed file extensions"""

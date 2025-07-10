@@ -96,13 +96,32 @@ DSGVO-Checker is a comprehensive tool for analyzing documents for GDPR (General 
    python test_installation.py
    ```
 
+6. **Test proxy connection (if using LiteLLM):**
+   ```bash
+   python test_proxy.py
+   ```
+
 ## Configuration
 
 The application uses environment variables for configuration. Key settings include:
 
+### LiteLLM Proxy Support
+
+The application supports LiteLLM proxy for using different LLM providers:
+
+```bash
+# Example: Using LiteLLM proxy
+OPENAI_BASE_URL=http://localhost:4000/v1
+OPENAI_API_KEY=your_proxy_api_key
+OPENAI_MODEL=gpt-4  # or any model supported by your proxy
+```
+
+This allows you to use various LLM providers through LiteLLM proxy while maintaining the same OpenAI-compatible interface.
+
 ### OpenAI Configuration
 - `OPENAI_API_KEY`: Your OpenAI API key (required)
 - `OPENAI_MODEL`: GPT model to use (default: gpt-4)
+- `OPENAI_BASE_URL`: Base URL for LiteLLM proxy (optional)
 
 ### Application Settings
 - `LOG_LEVEL`: Logging level (default: INFO)
@@ -139,6 +158,7 @@ DSGVO-Checker/
 ├── .dockerignore           # Docker ignore file
 ├── env_example.txt         # Environment variables example
 ├── test_installation.py    # Installation verification
+├── test_proxy.py          # Proxy connection test
 └── README.md              # This file
 ```
 

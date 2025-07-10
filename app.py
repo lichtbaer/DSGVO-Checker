@@ -8,6 +8,7 @@ from datetime import datetime
 from config import get_config
 from utils.logger import get_logger
 from utils.file_validator import FileValidator
+from utils.proxy_validator import ProxyValidator
 from document_processor import DocumentProcessor
 from compliance_checker import ComplianceChecker
 from report_generator import ReportGenerator
@@ -24,6 +25,13 @@ except ValueError as e:
     st.error(f"Configuration error: {e}")
     st.stop()
 
+# Validate proxy configuration
+proxy_validator = ProxyValidator()
+is_valid, error_msg = proxy_validator.validate_proxy_config()
+if not is_valid:
+    st.error(f"Proxy configuration error: {error_msg}")
+    st.stop()
+
 # Page configuration
 st.set_page_config(
     page_title="DSGVO-Checker",
@@ -35,6 +43,13 @@ st.set_page_config(
 def main():
     st.title("🔒 DSGVO-Checker")
     st.markdown("AI-powered GDPR compliance document checker")
+    
+    # Display proxy information
+    proxy_info = proxy_validator.get_proxy_info()
+    if proxy_info['has_proxy']:
+        st.info(f"🔗 Using proxy: {proxy_info['base_url']}")
+    else:
+        st.info("🔗 Using direct OpenAI API")
     
     # Initialize session state
     if 'uploaded_files' not in st.session_state:

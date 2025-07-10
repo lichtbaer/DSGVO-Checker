@@ -16,7 +16,8 @@ class ComplianceChecker:
     def __init__(self):
         """Initialize the compliance checker with OpenAI API"""
         self.config = get_config()
-        self.client = openai.OpenAI(api_key=self.config.openai_api_key)
+        client_config = self.config.get_openai_client_config()
+        self.client = openai.OpenAI(**client_config)
         self.model = self.config.openai_model
     
     def check_compliance(self, text_content: str, protocol: Dict[str, List[str]], filename: str) -> Dict[str, Any]:

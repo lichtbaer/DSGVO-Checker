@@ -2,13 +2,19 @@ import json
 import os
 from typing import Dict, List, Any
 from pathlib import Path
+from config import get_config
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 class ProtocolManager:
     """
     Manages GDPR compliance check protocols
     """
     
-    def __init__(self, protocol_file: str = "gdpr_protocol.json"):
+    def __init__(self, protocol_file: str = ""):
+        self.config = get_config()
+        self.protocol_file = protocol_file if protocol_file else self.config.protocol_file
         """
         Initialize the protocol manager
         

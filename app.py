@@ -4,15 +4,25 @@ from pathlib import Path
 import tempfile
 import json
 from datetime import datetime
-from dotenv import load_dotenv
 
+from config import get_config
+from utils.logger import get_logger
+from utils.file_validator import FileValidator
 from document_processor import DocumentProcessor
 from compliance_checker import ComplianceChecker
 from report_generator import ReportGenerator
 from protocol_manager import ProtocolManager
 
-# Load environment variables
-load_dotenv()
+# Initialize configuration and logging
+config = get_config()
+logger = get_logger(__name__)
+
+# Validate configuration
+try:
+    config.validate()
+except ValueError as e:
+    st.error(f"Configuration error: {e}")
+    st.stop()
 
 # Page configuration
 st.set_page_config(
@@ -57,25 +67,40 @@ def show_document_upload():
     
     uploaded_files = st.file_uploader(
         "Upload documents to check for GDPR compliance",
-        type=['pdf', 'docx', 'doc', 'txt'],
+        type=config.allowed_file_types,
         accept_multiple_files=True,
-        help="Supported formats: PDF, DOCX, DOC, TXT"
+        help=f"Supported formats: {', '.join(config.allowed_file_types)}"
     )
     
     if uploaded_files:
-        st.session_state.uploaded_files = uploaded_files
-        st.success(f"Uploaded {len(uploaded_files)} document(s)")
+        # Validate uploaded files
+        file_validator = FileValidator()
+        valid_files = []
         
-        # Display uploaded files
-        st.subheader("Uploaded Documents:")
-        for i, file in enumerate(uploaded_files):
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                st.write(f"📎 {file.name} ({file.size} bytes)")
-            with col2:
-                if st.button(f"Remove", key=f"remove_{i}"):
-                    st.session_state.uploaded_files.pop(i)
-                    st.rerun()
+        for file in uploaded_files:
+            is_valid, error_msg = file_validator.validate_file(file)
+            if is_valid:
+                valid_files.append(file)
+            else:
+                st.error(f"Invalid file {file.name}: {error_msg}")
+        
+        if valid_files:
+            st.session_state.uploaded_files = valid_files
+            st.success(f"Uploaded {len(valid_files)} valid document(s)")
+            
+            # Display uploaded files
+            st.subheader("Uploaded Documents:")
+            for i, file in enumerate(valid_files):
+                file_info = file_validator.get_file_info(file)
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.write(f"📎 {file_info['name']} ({file_info['size']} bytes)")
+                with col2:
+                    if st.button(f"Remove", key=f"remove_{i}"):
+                        st.session_state.uploaded_files.pop(i)
+                        st.rerun()
+        else:
+            st.warning("No valid files uploaded")
 
 def show_protocol_management():
     st.header("📋 Protocol Management")

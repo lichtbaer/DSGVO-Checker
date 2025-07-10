@@ -2,11 +2,18 @@ import PyPDF2
 from docx import Document
 import io
 import streamlit as st
+from config import get_config
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 class DocumentProcessor:
     """
     Handles extraction of text content from various document formats
     """
+    
+    def __init__(self):
+        self.config = get_config()
     
     def extract_text(self, uploaded_file):
         """

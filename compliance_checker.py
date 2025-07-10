@@ -3,6 +3,10 @@ import os
 import json
 from typing import Dict, List, Any
 import streamlit as st
+from config import get_config
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 class ComplianceChecker:
     """
@@ -11,8 +15,9 @@ class ComplianceChecker:
     
     def __init__(self):
         """Initialize the compliance checker with OpenAI API"""
-        self.client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-        self.model = "gpt-4"  # Can be configured to use different models
+        self.config = get_config()
+        self.client = openai.OpenAI(api_key=self.config.openai_api_key)
+        self.model = self.config.openai_model
     
     def check_compliance(self, text_content: str, protocol: Dict[str, List[str]], filename: str) -> Dict[str, Any]:
         """
@@ -40,8 +45,8 @@ class ComplianceChecker:
                     {"role": "system", "content": "You are a GDPR compliance expert. Analyze the provided document against the given compliance criteria and provide detailed assessment with scores, issues, and recommendations."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.3,
-                max_tokens=2000
+                temperature=self.config.temperature,
+                max_tokens=self.config.max_tokens
             )
             
             # Parse the response
@@ -65,7 +70,7 @@ class ComplianceChecker:
         """Create the analysis prompt for the AI model"""
         
         # Truncate content if too long (GPT-4 has token limits)
-        max_chars = 8000
+        max_chars = self.config.max_content_length
         if len(text_content) > max_chars:
             text_content = text_content[:max_chars] + "\n[Content truncated due to length]"
         

@@ -59,13 +59,21 @@ def main():
     if 'compliance_results' not in st.session_state:
         st.session_state.compliance_results = []
     
+    # Initialize current page in session state
+    if 'current_page' not in st.session_state:
+        st.session_state.current_page = "Document Upload"
+    
     # Sidebar for navigation
     with st.sidebar:
         st.header("Navigation")
         page = st.selectbox(
             "Choose a page:",
-            ["Document Upload", "Protocol Management", "Compliance Check", "Report Generation"]
+            ["Document Upload", "Protocol Management", "Compliance Check", "Report Generation"],
+            index=["Document Upload", "Protocol Management", "Compliance Check", "Report Generation"].index(st.session_state.current_page)
         )
+        
+        # Update current page
+        st.session_state.current_page = page
     
     # Main content based on selected page
     if page == "Document Upload":
@@ -114,6 +122,15 @@ def show_document_upload():
                     if st.button(f"Remove", key=f"remove_{i}"):
                         st.session_state.uploaded_files.pop(i)
                         st.rerun()
+            
+            # Add "Start Check" button for workflow improvement
+            st.markdown("---")
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                if st.button("🚀 Prüfung starten", type="primary", use_container_width=True):
+                    st.session_state.current_page = "Compliance Check"
+                    st.session_state.auto_start_check = True
+                    st.rerun()
         else:
             st.warning("No valid files uploaded")
 
@@ -203,6 +220,32 @@ def show_compliance_check():
     document_processor = DocumentProcessor()
     compliance_checker = ComplianceChecker()
     
+    # Auto-start compliance check if coming from upload page
+    auto_start = st.session_state.get('auto_start_check', False)
+    if auto_start and st.session_state.uploaded_files:
+        st.session_state.auto_start_check = False
+        with st.spinner("Processing documents and checking compliance..."):
+            results = []
+            
+            for file in st.session_state.uploaded_files:
+                st.write(f"Processing {file.name}...")
+                
+                # Process document
+                text_content = document_processor.extract_text(file)
+                
+                # Check compliance
+                file_result = compliance_checker.check_compliance(
+                    text_content,
+                    st.session_state.check_protocol,
+                    file.name
+                )
+                
+                results.append(file_result)
+            
+            st.session_state.compliance_results = results
+            st.success("Compliance check completed!")
+    
+    # Manual start button
     if st.button("🚀 Start Compliance Check", type="primary"):
         with st.spinner("Processing documents and checking compliance..."):
             results = []
@@ -247,6 +290,14 @@ def show_compliance_check():
                         st.write("**Recommendations:**")
                         for rec in section_result['recommendations']:
                             st.write(f"• {rec}")
+        
+        # Add "View Results" button for workflow improvement
+        st.markdown("---")
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("📊 Ergebnisse anzeigen", type="primary", use_container_width=True):
+                st.session_state.current_page = "Report Generation"
+                st.rerun()
 
 def show_report_generation():
     st.header("📊 Report Generation")

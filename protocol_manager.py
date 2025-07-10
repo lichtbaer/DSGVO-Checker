@@ -59,6 +59,11 @@ class ProtocolManager:
     
     def _ensure_protocol_file_exists(self):
         """Ensure the protocol file exists with default content"""
+        # Create data directory if it doesn't exist
+        protocol_dir = os.path.dirname(self.protocol_file)
+        if protocol_dir and not os.path.exists(protocol_dir):
+            os.makedirs(protocol_dir, exist_ok=True)
+            
         if not os.path.exists(self.protocol_file):
             default_protocol = self._get_default_protocol()
             self.save_protocol(default_protocol)

@@ -5,7 +5,7 @@ Handles all environment variables and application settings
 
 import os
 from typing import List
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -23,7 +23,7 @@ class AppConfig:
     # Application Settings
     log_level: str = os.getenv('LOG_LEVEL', 'INFO')
     max_file_size: int = int(os.getenv('MAX_FILE_SIZE', '10485760'))  # 10MB default
-    allowed_file_types: List[str] = os.getenv('ALLOWED_FILE_TYPES', 'pdf,docx,doc,txt').split(',')
+    allowed_file_types: List[str] = field(default_factory=lambda: os.getenv('ALLOWED_FILE_TYPES', 'pdf,docx,doc,txt').split(','))
     
     # Streamlit Configuration
     streamlit_port: int = int(os.getenv('STREAMLIT_SERVER_PORT', '8501'))

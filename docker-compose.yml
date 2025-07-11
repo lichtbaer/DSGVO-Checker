@@ -1,9 +1,8 @@
-version: '3.8'
-
 services:
   dsgvo-checker:
     build: .
     container_name: dsgvo-checker
+    user: "1000:1000"
     ports:
       - "8501:8501"
     environment:
@@ -15,9 +14,6 @@ services:
       - ALLOWED_FILE_TYPES=${ALLOWED_FILE_TYPES:-pdf,docx,doc,txt}
       - DATA_DIR=${DATA_DIR:-./data}
       - LOGS_DIR=${LOGS_DIR:-./logs}
-    volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]

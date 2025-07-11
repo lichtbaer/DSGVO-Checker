@@ -32,11 +32,11 @@ class AppConfig:
     # File Paths
     data_dir: str = os.getenv('DATA_DIR', './data')
     logs_dir: str = os.getenv('LOGS_DIR', './logs')
-    protocol_file: str = os.getenv('PROTOCOL_FILE', 'gdpr_protocol.json')
+    protocol_file: str = os.getenv('PROTOCOL_FILE', './data/gdpr_protocol.json')
     
     # AI Analysis Settings
     max_tokens: int = int(os.getenv('MAX_TOKENS', '2000'))
-    temperature: float = float(os.getenv('TEMPERATURE', '0.3'))
+    temperature: float = float(os.getenv('TEMPERATURE', '0.1'))
     max_content_length: int = int(os.getenv('MAX_CONTENT_LENGTH', '8000'))
     
     def validate(self) -> bool:
@@ -44,11 +44,23 @@ class AppConfig:
         if not self.openai_api_key:
             raise ValueError("OPENAI_API_KEY is required")
         
+        # Validate OpenAI API key format (should start with 'sk-')
+        if self.openai_api_key and not self.openai_api_key.startswith('sk-'):
+            raise ValueError("OPENAI_API_KEY should start with 'sk-'")
+        
         if self.max_file_size <= 0:
             raise ValueError("MAX_FILE_SIZE must be positive")
         
         if not self.allowed_file_types:
             raise ValueError("ALLOWED_FILE_TYPES cannot be empty")
+        
+        # Validate temperature range
+        if not 0.0 <= self.temperature <= 2.0:
+            raise ValueError("TEMPERATURE must be between 0.0 and 2.0")
+        
+        # Validate max_tokens
+        if self.max_tokens <= 0:
+            raise ValueError("MAX_TOKENS must be positive")
         
         return True
     

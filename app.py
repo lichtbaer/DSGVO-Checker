@@ -4,6 +4,10 @@ from pathlib import Path
 import tempfile
 import json
 from datetime import datetime
+import asyncio
+import threading
+from concurrent.futures import ThreadPoolExecutor
+import time
 
 from config import get_config
 from utils.logger import get_logger
@@ -17,6 +21,150 @@ from protocol_manager import ProtocolManager
 # Initialize configuration and logging
 config = get_config()
 logger = get_logger(__name__)
+
+class ProgressTracker:
+    """Tracks progress for async operations"""
+    
+    def __init__(self, total_steps):
+        self.total_steps = total_steps
+        self.current_step = 0
+        self.current_file = ""
+        self.current_operation = ""
+        self.lock = threading.Lock()
+    
+    def update_progress(self, step, file_name="", operation=""):
+        """Update progress with thread safety"""
+        with self.lock:
+            self.current_step = step
+            self.current_file = file_name
+            self.current_operation = operation
+    
+    def get_progress(self):
+        """Get current progress information"""
+        with self.lock:
+            return {
+                'current_step': self.current_step,
+                'total_steps': self.total_steps,
+                'progress': self.current_step / self.total_steps if self.total_steps > 0 else 0,
+                'current_file': self.current_file,
+                'current_operation': self.current_operation
+            }
+
+def process_single_file(file, protocol, language, progress_tracker, file_index):
+    """Process a single file with progress tracking"""
+    try:
+        # Create progress callback for document processing
+        def document_progress_callback(progress, message):
+            # Map document processing progress (0-1) to overall progress (0-50% of file processing)
+            overall_progress = file_index * 2 + progress * 0.5
+            progress_tracker.update_progress(overall_progress, file.name, message)
+        
+        # Update progress - Document processing
+        progress_tracker.update_progress(
+            file_index * 2, 
+            file.name, 
+            "Starting document processing"
+        )
+        
+        # Process document with progress tracking
+        document_processor = DocumentProcessor()
+        text_content = document_processor.extract_text(file, document_progress_callback)
+        
+        # Update progress - Compliance checking
+        progress_tracker.update_progress(
+            file_index * 2 + 0.5, 
+            file.name, 
+            "Analyzing compliance with AI"
+        )
+        
+        # Check compliance
+        compliance_checker = ComplianceChecker()
+        file_result = compliance_checker.check_compliance(
+            text_content,
+            protocol,
+            file.name,
+            language
+        )
+        
+        # Update progress - Completed
+        progress_tracker.update_progress(
+            file_index * 2 + 1, 
+            file.name, 
+            "Completed"
+        )
+        
+        return file_result
+        
+    except Exception as e:
+        logger.error(f"Error processing file {file.name}: {str(e)}")
+        return {
+            'filename': file.name,
+            'overall_score': 0.0,
+            'section_results': {},
+            'summary': f"Error processing file: {str(e)}"
+        }
+
+def run_async_compliance_check(files, protocol, language):
+    """Run compliance check asynchronously with progress tracking"""
+    total_steps = len(files) * 2  # 2 steps per file: processing + compliance check
+    progress_tracker = ProgressTracker(total_steps)
+    
+    # Create progress placeholder
+    progress_placeholder = st.empty()
+    status_placeholder = st.empty()
+    
+    def update_progress_display():
+        """Update progress display in Streamlit"""
+        try:
+            while True:
+                progress_info = progress_tracker.get_progress()
+                
+                # Use st.session_state to communicate between threads
+                st.session_state['progress_info'] = progress_info
+                
+                time.sleep(0.1)  # Update every 100ms
+                
+                # Stop if all files are processed
+                if progress_info['current_step'] >= progress_info['total_steps']:
+                    break
+        except Exception as e:
+            logger.error(f"Error in progress display thread: {e}")
+    
+    # Start progress display in a separate thread
+    progress_thread = threading.Thread(target=update_progress_display)
+    progress_thread.daemon = True
+    progress_thread.start()
+    
+    # Process files with ThreadPoolExecutor
+    results = []
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        # Submit all tasks
+        future_to_file = {
+            executor.submit(process_single_file, file, protocol, language, progress_tracker, i): file 
+            for i, file in enumerate(files)
+        }
+        
+        # Collect results as they complete
+        for future in future_to_file:
+            try:
+                result = future.result()
+                results.append(result)
+            except Exception as e:
+                logger.error(f"Error in async processing: {str(e)}")
+                # Add error result
+                file = future_to_file[future]
+                results.append({
+                    'filename': file.name,
+                    'overall_score': 0.0,
+                    'section_results': {},
+                    'summary': f"Error: {str(e)}"
+                })
+    
+    # Clear progress display
+    progress_placeholder.empty()
+    status_placeholder.empty()
+    
+    return results
 
 # Validate configuration
 try:
@@ -44,13 +192,6 @@ def main():
     st.title("🔒 DSGVO-Checker")
     st.markdown("AI-powered GDPR compliance document checker")
     
-    # Display proxy information
-    proxy_info = proxy_validator.get_proxy_info()
-    if proxy_info['has_proxy']:
-        st.info(f"🔗 Using proxy: {proxy_info['base_url']}")
-    else:
-        st.info("🔗 Using direct OpenAI API")
-    
     # Initialize session state
     if 'uploaded_files' not in st.session_state:
         st.session_state.uploaded_files = []
@@ -58,22 +199,37 @@ def main():
         st.session_state.check_protocol = {}
     if 'compliance_results' not in st.session_state:
         st.session_state.compliance_results = []
+    if 'selected_protocol' not in st.session_state:
+        st.session_state.selected_protocol = None
+    if 'language' not in st.session_state:
+        st.session_state.language = "Deutsch"
     
     # Initialize current page in session state
     if 'current_page' not in st.session_state:
         st.session_state.current_page = "Document Upload"
     
-    # Sidebar for navigation
+    # Sidebar for navigation and settings
     with st.sidebar:
         st.header("Navigation")
         page = st.selectbox(
-            "Choose a page:",
+            "Seite wählen:",
             ["Document Upload", "Protocol Management", "Compliance Check", "Report Generation"],
             index=["Document Upload", "Protocol Management", "Compliance Check", "Report Generation"].index(st.session_state.current_page)
         )
         
         # Update current page
         st.session_state.current_page = page
+        
+        st.markdown("---")
+        st.header("Einstellungen")
+        
+        # Language selection
+        language = st.selectbox(
+            "Sprache für Berichte:",
+            ["Deutsch", "English"],
+            index=0 if st.session_state.language == "Deutsch" else 1
+        )
+        st.session_state.language = language
     
     # Main content based on selected page
     if page == "Document Upload":
@@ -96,20 +252,33 @@ def show_document_upload():
     )
     
     if uploaded_files:
-        # Validate uploaded files
+        # Validate uploaded files with progress tracking
         file_validator = FileValidator()
         valid_files = []
         
-        for file in uploaded_files:
+        # Create progress tracking for file validation
+        validation_progress = st.progress(0)
+        validation_status = st.empty()
+        
+        total_files = len(uploaded_files)
+        for i, file in enumerate(uploaded_files):
+            validation_progress.progress((i + 1) / total_files)
+            validation_status.text(f"Validating {file.name}...")
+            
             is_valid, error_msg = file_validator.validate_file(file)
             if is_valid:
                 valid_files.append(file)
             else:
                 st.error(f"Invalid file {file.name}: {error_msg}")
         
+        # Clear progress indicators
+        validation_progress.empty()
+        validation_status.empty()
+        
         if valid_files:
+            # Store valid files in session state
             st.session_state.uploaded_files = valid_files
-            st.success(f"Uploaded {len(valid_files)} valid document(s)")
+            st.success(f"✅ Uploaded {len(valid_files)} valid document(s)")
             
             # Display uploaded files
             st.subheader("Uploaded Documents:")
@@ -123,16 +292,19 @@ def show_document_upload():
                         st.session_state.uploaded_files.pop(i)
                         st.rerun()
             
-            # Add "Start Check" button for workflow improvement
+            # Add navigation button for workflow improvement
             st.markdown("---")
             col1, col2, col3 = st.columns([1, 2, 1])
             with col2:
-                if st.button("🚀 Prüfung starten", type="primary", use_container_width=True):
+                if st.button("🔍 Zur Compliance-Prüfung", type="primary", use_container_width=True):
                     st.session_state.current_page = "Compliance Check"
-                    st.session_state.auto_start_check = True
                     st.rerun()
         else:
             st.warning("No valid files uploaded")
+    else:
+        # Clear uploaded files from session state if no files are uploaded
+        if 'uploaded_files' in st.session_state:
+            del st.session_state.uploaded_files
 
 def show_protocol_management():
     st.header("📋 Protocol Management")
@@ -208,65 +380,77 @@ def show_protocol_management():
 def show_compliance_check():
     st.header("🔍 Compliance Check")
     
-    if not st.session_state.uploaded_files:
+    # Debug information
+    st.write(f"Debug: Session state keys: {list(st.session_state.keys())}")
+    st.write(f"Debug: uploaded_files in session: {'uploaded_files' in st.session_state}")
+    if 'uploaded_files' in st.session_state:
+        st.write(f"Debug: Number of uploaded files: {len(st.session_state.uploaded_files)}")
+    
+    if not st.session_state.get('uploaded_files'):
         st.warning("Please upload documents first in the Document Upload section.")
+        st.info("💡 Tip: Go to 'Document Upload' page, upload files, and then return here.")
         return
     
-    if not st.session_state.check_protocol:
-        st.warning("Please define a check protocol in the Protocol Management section.")
+    # Load available protocols
+    protocol_manager = ProtocolManager()
+    available_protocols = protocol_manager.load_protocol()
+    
+    # Protocol selection
+    st.subheader("📋 Select Check Protocol")
+    
+    if not available_protocols:
+        st.warning("No protocols available. Please create a protocol in the Protocol Management section.")
         return
     
-    # Initialize components
-    document_processor = DocumentProcessor()
-    compliance_checker = ComplianceChecker()
+    # Create protocol options for selection
+    protocol_options = ["Use All Available Protocols (Default)"]
+    protocol_options.extend(list(available_protocols.keys()))
     
-    # Auto-start compliance check if coming from upload page
-    auto_start = st.session_state.get('auto_start_check', False)
-    if auto_start and st.session_state.uploaded_files:
-        st.session_state.auto_start_check = False
-        with st.spinner("Processing documents and checking compliance..."):
-            results = []
-            
-            for file in st.session_state.uploaded_files:
-                st.write(f"Processing {file.name}...")
-                
-                # Process document
-                text_content = document_processor.extract_text(file)
-                
-                # Check compliance
-                file_result = compliance_checker.check_compliance(
-                    text_content,
-                    st.session_state.check_protocol,
-                    file.name
-                )
-                
-                results.append(file_result)
-            
-            st.session_state.compliance_results = results
-            st.success("Compliance check completed!")
+    selected_protocol = st.selectbox(
+        "Choose protocol to use for compliance checking:",
+        protocol_options,
+        index=0,
+        help="Select 'Use All Available Protocols' to check against all criteria, or choose a specific section"
+    )
     
-    # Manual start button
+    # Set the protocol for checking
+    if selected_protocol == "Use All Available Protocols (Default)":
+        st.session_state.check_protocol = available_protocols
+        st.info("✅ Using all available protocols for comprehensive compliance checking")
+    else:
+        st.session_state.check_protocol = {selected_protocol: available_protocols[selected_protocol]}
+        st.info(f"✅ Using protocol: {selected_protocol}")
+    
+    # Display selected protocol
+    st.subheader("Selected Protocol")
+    for section, criteria in st.session_state.check_protocol.items():
+        with st.expander(f"📋 {section}"):
+            for criterion in criteria:
+                st.write(f"• {criterion}")
+    
+    # Manual start button only (removed auto-start)
     if st.button("🚀 Start Compliance Check", type="primary"):
-        with st.spinner("Processing documents and checking compliance..."):
-            results = []
-            
-            for file in st.session_state.uploaded_files:
-                st.write(f"Processing {file.name}...")
-                
-                # Process document
-                text_content = document_processor.extract_text(file)
-                
-                # Check compliance
-                file_result = compliance_checker.check_compliance(
-                    text_content,
-                    st.session_state.check_protocol,
-                    file.name
-                )
-                
-                results.append(file_result)
-            
-            st.session_state.compliance_results = results
-            st.success("Compliance check completed!")
+        st.info("🚀 Starting compliance check...")
+        
+        # Initialize progress tracking
+        st.session_state['progress_info'] = None
+        
+        # Run async compliance check
+        results = run_async_compliance_check(
+            st.session_state.uploaded_files,
+            st.session_state.check_protocol,
+            st.session_state.language
+        )
+        
+        st.session_state.compliance_results = results
+        st.success("✅ Compliance check completed!")
+    
+    # Display progress if available
+    if 'progress_info' in st.session_state and st.session_state['progress_info']:
+        progress_info = st.session_state['progress_info']
+        st.progress(progress_info['progress'])
+        if progress_info['current_file']:
+            st.text(f"Processing: {progress_info['current_file']} - {progress_info['current_operation']}")
     
     # Display results
     if st.session_state.compliance_results:
@@ -324,7 +508,15 @@ def show_report_generation():
         )
     
     if st.button("📄 Generate Report", type="primary"):
-        with st.spinner("Generating report..."):
+        # Create progress tracking for report generation
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        try:
+            # Step 1: Prepare report data
+            status_text.text("📊 Preparing report data...")
+            progress_bar.progress(25)
+            
             report_data = {
                 'results': st.session_state.compliance_results,
                 'protocol': st.session_state.check_protocol,
@@ -335,12 +527,39 @@ def show_report_generation():
                 }
             }
             
+            # Step 2: Generate report based on format
+            status_text.text("📄 Generating report...")
+            progress_bar.progress(50)
+            
             if report_format == "Streamlit Display":
+                progress_bar.progress(75)
+                status_text.text("📊 Displaying report...")
                 display_report(report_data)
+                progress_bar.progress(100)
+                status_text.text("✅ Report displayed successfully!")
+                
             elif report_format == "Word Document":
+                progress_bar.progress(75)
+                status_text.text("📄 Creating Word document...")
                 download_word_report(report_data)
+                progress_bar.progress(100)
+                status_text.text("✅ Word report ready for download!")
+                
             elif report_format == "PDF":
+                progress_bar.progress(75)
+                status_text.text("📄 Creating PDF document...")
                 download_pdf_report(report_data)
+                progress_bar.progress(100)
+                status_text.text("✅ PDF report ready for download!")
+                
+        except Exception as e:
+            st.error(f"❌ Error generating report: {str(e)}")
+            logger.error(f"Report generation error: {str(e)}")
+        finally:
+            # Clear progress indicators after a delay
+            time.sleep(2)
+            progress_bar.empty()
+            status_text.empty()
 
 def display_report(report_data):
     st.subheader("📊 Compliance Report")
@@ -384,6 +603,13 @@ def display_report(report_data):
                         st.write("**Recommendations:**")
                         for rec in section_result['recommendations']:
                             st.write(f"• {rec}")
+                    
+                    if section_result.get('references'):
+                        st.write("**References (Fundstellen):**")
+                        for criterion, refs in section_result['references'].items():
+                            st.write(f"- {criterion}:")
+                            for ref in refs:
+                                st.write(f"    • {ref}")
     
     # Recommendations
     if report_data['options']['include_recommendations']:
@@ -402,17 +628,67 @@ def display_report(report_data):
 
 def download_word_report(report_data):
     report_generator = ReportGenerator()
-    doc_bytes = report_generator.generate_word_report(report_data)
     
-    st.download_button(
-        label="📥 Download Word Report",
-        data=doc_bytes,
-        file_name=f"gdpr_compliance_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx",
-        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    )
+    # Create progress callback for report generation
+    progress_placeholder = st.empty()
+    status_placeholder = st.empty()
+    
+    def report_progress_callback(progress, message):
+        progress_placeholder.progress(progress)
+        status_placeholder.text(message)
+    
+    try:
+        doc_bytes = report_generator.generate_word_report(report_data, report_progress_callback)
+        
+        # Clear progress indicators
+        progress_placeholder.empty()
+        status_placeholder.empty()
+        
+        st.download_button(
+            label="📥 Download Word Report",
+            data=doc_bytes,
+            file_name=f"gdpr_compliance_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+    except Exception as e:
+        st.error(f"❌ Error generating Word report: {str(e)}")
+        logger.error(f"Word report generation error: {str(e)}")
+    finally:
+        # Clear progress indicators
+        progress_placeholder.empty()
+        status_placeholder.empty()
 
 def download_pdf_report(report_data):
-    st.info("PDF export functionality will be implemented in a future version.")
+    report_generator = ReportGenerator()
+    
+    # Create progress callback for report generation
+    progress_placeholder = st.empty()
+    status_placeholder = st.empty()
+    
+    def report_progress_callback(progress, message):
+        progress_placeholder.progress(progress)
+        status_placeholder.text(message)
+    
+    try:
+        pdf_bytes = report_generator.generate_pdf_report(report_data, report_progress_callback)
+        
+        # Clear progress indicators
+        progress_placeholder.empty()
+        status_placeholder.empty()
+        
+        st.download_button(
+            label="📥 Download PDF Report",
+            data=pdf_bytes,
+            file_name=f"gdpr_compliance_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+            mime="application/pdf"
+        )
+    except Exception as e:
+        st.error(f"❌ Error generating PDF report: {str(e)}")
+        logger.error(f"PDF report generation error: {str(e)}")
+    finally:
+        # Clear progress indicators
+        progress_placeholder.empty()
+        status_placeholder.empty()
 
 if __name__ == "__main__":
     main() 

@@ -28,7 +28,10 @@ COPY . .
 
 # Create non-root user for security
 RUN useradd -m -u 1000 streamlit && \
-    chown -R streamlit:streamlit /app
+    mkdir -p /app/data /app/logs && \
+    chown -R streamlit:streamlit /app && \
+    chmod -R 755 /app/data /app/logs && \
+    chown -R streamlit:streamlit /app/data /app/logs
 USER streamlit
 
 # Expose port

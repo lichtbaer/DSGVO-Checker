@@ -16,6 +16,9 @@ DSGVO-Checker is a comprehensive tool for analyzing documents for GDPR (General 
 - **User-Friendly Interface**: Clean Streamlit-based web interface
 - **Docker Support**: Containerized deployment with environment-based configuration
 - **Modular Architecture**: Well-structured, maintainable codebase
+- **Async Processing**: Parallel processing of multiple documents with progress tracking
+- **Progress Indicators**: Real-time progress updates for all long-running operations
+- **Large File Support**: Optimized processing for large documents with chunked reading
 
 ## Quick Start with Docker
 
@@ -293,3 +296,33 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Support
 
 For issues and questions, please create an issue in the repository.
+
+## Performance Features
+
+### Async Processing
+DSGVO-Checker now supports asynchronous processing of multiple documents, significantly improving performance when analyzing multiple files:
+
+- **Parallel Processing**: Multiple documents are processed simultaneously using ThreadPoolExecutor
+- **Progress Tracking**: Real-time progress indicators show current operation and completion status
+- **Resource Management**: Optimized memory usage with proper cleanup and error handling
+
+### Large File Support
+Enhanced document processing for large files:
+
+- **Chunked Reading**: Large text files are read in chunks to prevent memory issues
+- **Progress Updates**: Detailed progress tracking for PDF pages, DOCX paragraphs, and file bytes
+- **UI Responsiveness**: Small delays prevent UI freezing during large file processing
+
+### Progress Indicators
+Comprehensive progress tracking across all operations:
+
+- **File Validation**: Progress bar during file upload and validation
+- **Document Processing**: Real-time updates during text extraction
+- **Compliance Checking**: Progress tracking for AI analysis
+- **Report Generation**: Step-by-step progress for Word and PDF generation
+
+### Performance Optimizations
+- **Thread Safety**: All progress tracking uses thread-safe operations
+- **Memory Efficiency**: Proper resource cleanup and memory management
+- **Error Recovery**: Graceful handling of processing errors with detailed feedback
+- **Scalability**: Configurable thread pool size for different system capabilities
